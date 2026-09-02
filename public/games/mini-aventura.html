@@ -155,12 +155,12 @@ function playFile(path, vol=0.6){
    a.play().catch(()=>{});
  }
  const sfx = {
-   jump(){ playFile('../sfx/jump.mp3'); },
-   coin(){ playFile('../sfx/coin.mp3'); },
+   jump(){ playFile('../music/jump.mp3'); },
+   coin(){ playFile('../music/coin.mp3'); },
    stomp(){ playFile('../sfx/stomp.mp3'); },
-   hurt(){ playFile('../sfx/hurt.mp3'); },
+   hurt(){ playFile('../music/hurt.mp3'); },
    win(){ playFile('../music/levelclear.mp3'); },
-   gameOver(){ playFile('../sfx/gameover.mp3'); }
+   gameOver(){ playFile('../music/gameOver.mp3'); }
  };
 /*
 const sfx = {
