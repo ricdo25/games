@@ -13,7 +13,7 @@ export default function GameCard({ game, isFavorite, onToggleFavorite }) {
         {isFavorite ? '★' : '☆'}
       </button>
 
-      <a className="card-link" href={game.path} target="_blank" rel="noopener noreferrer">
+      <a className="card-link" href={import.meta.env.BASE_URL + game.path} target="_blank" rel="noopener noreferrer">
         <div className="thumb">{game.emoji}</div>
         <div className="info">
           <h3>{game.title}</h3>
