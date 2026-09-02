@@ -10,7 +10,7 @@ export const games = [
     description: 'Mové la canasta y atrapá estrellas, esquivá las bombas.',
     emoji: '⭐',
     category: 'Arcade',
-    path: '/games/atrapa-estrellas.html',
+    path: 'games/atrapa-estrellas.html',
   },
   {
     id: 'mini-aventura',
@@ -18,6 +18,6 @@ export const games = [
     description: 'Plataformas: corré, saltá, vencé enemigos y llegá a la bandera.',
     emoji: '🍄',
     category: 'Plataformas',
-    path: '/games/mini-aventura.html',
+    path: 'games/mini-aventura.html',
   },
 ]
