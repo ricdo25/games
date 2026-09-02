@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mini Aventura</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background: linear-gradient(180deg, #5c94fc, #a0d8ff);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Segoe UI', Arial, sans-serif;
+    overflow: hidden;
+    touch-action: none;
+    padding: 10px;
+  }
+  h1 {
+    color: white;
+    font-size: 26px;
+    margin-bottom: 8px;
+    text-shadow: 2px 2px 0 #b0392f;
+  }
+  #hud {
+    display: flex;
+    gap: 24px;
+    color: white;
+    font-weight: bold;
+    font-size: 16px;
+    margin-bottom: 8px;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+  }
+  #hud span { color: #fff700; }
+  canvas {
+    background: #5c94fc;
+    border: 4px solid #6b3f1a;
+    border-radius: 8px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.35);
+    max-width: 100%;
+  }
+  #msg {
+    color: #fff;
+    margin-top: 10px;
+    font-size: 13px;
+    opacity: 0.9;
+    text-align: center;
+  }
+  #controls {
+    display: flex;
+    gap: 14px;
+    margin-top: 12px;
+  }
+  #controls button {
+    width: 60px;
+    height: 50px;
+    font-size: 20px;
+    border: none;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.85);
+    font-weight: bold;
+    cursor: pointer;
+  }
+  #overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.75);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    color: white;
+    text-align: center;
+    z-index: 10;
+  }
+  #overlay h2 { font-size: 34px; color: #fff700; margin-bottom: 10px; text-shadow: 2px 2px 0 #b0392f; }
+  #overlay button.replay {
+    margin-top: 20px;
+    padding: 12px 28px;
+    font-size: 16px;
+    background: #fff700;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: bold;
+  }
+</style>
+</head>
+<body>
+  <h1>🍄 Mini Aventura</h1>
+  <div id="hud">Puntos: <span id="score">0</span> &nbsp; Vidas: <span id="lives">3</span> &nbsp; Monedas: <span id="coins">0</span></div>
+  <canvas id="game" width="480" height="320"></canvas>
+  <p id="msg">Flechas / A-D para moverte, Espacio o ↑ para saltar. Salta sobre los enemigos para vencerlos.</p>
+
+  <div id="controls">
+    <button id="btnLeft">◀</button>
+    <button id="btnJump">⬆</button>
+    <button id="btnRight">▶</button>
+  </div>
+
+  <div id="overlay">
+    <h2 id="overlayTitle">¡Fin del juego!</h2>
+    <p id="finalScore"></p>
+    <button class="replay" onclick="restart()">Jugar de nuevo</button>
+  </div>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+const livesEl = document.getElementById('lives');
+const coinsEl = document.getElementById('coins');
+const overlay = document.getElementById('overlay');
+const overlayTitle = document.getElementById('overlayTitle');
+
+const GRAVITY = 0.6;
+const LEVEL_WIDTH = 2200;
+const GROUND_Y = 280;
+
+let camX = 0;
+let score = 0, lives = 3, coinCount = 0;
+let running = true;
+let keys = {};
+
+let player = {
+  x: 40, y: 200, w: 26, h: 32,
+  vx: 0, vy: 0,
+  speed: 3.2, jumpPower: 11.5,
+  onGround: false,
+  dir: 1,
+  invuln: 0
+};
+
+// Platforms: {x,y,w,h}
+let platforms = [
+  {x:0, y:GROUND_Y, w:600, h:40},
+  {x:650, y:GROUND_Y, w:300, h:40},
+  {x:1000, y:GROUND_Y, w:500, h:40},
+  {x:1550, y:GROUND_Y, w:650, h:40},
+  {x:250, y:210, w:90, h:16},
+  {x:420, y:170, w:90, h:16},
+  {x:720, y:220, w:80, h:16},
+  {x:900, y:180, w:80, h:16},
+  {x:1100, y:210, w:100, h:16},
+  {x:1300, y:160, w:90, h:16},
+  {x:1650, y:210, w:100, h:16},
+  {x:1850, y:170, w:90, h:16},
+];
+
+// Gaps (pits) - handled naturally since ground platforms don't cover everything
+// Coins
+let coins = [
+  {x:270, y:180, taken:false},{x:300, y:180, taken:false},
+  {x:440, y:140, taken:false},{x:470, y:140, taken:false},
+  {x:740, y:190, taken:false},
+  {x:920, y:150, taken:false},{x:950,y:150,taken:false},
+  {x:1120, y:180, taken:false},{x:1150,y:180,taken:false},
+  {x:1320, y:130, taken:false},
+  {x:1670, y:180, taken:false},{x:1700,y:180,taken:false},
+  {x:1870, y:140, taken:false},
+];
+
+// Enemies: patrol between x1 and x2
+let enemies = [
+  {x:680, y:GROUND_Y-20, w:24, h:20, x1:650, x2:920, dir:1, speed:1.2, alive:true},
+  {x:1050, y:GROUND_Y-20, w:24, h:20, x1:1000, x2:1450, dir:1, speed:1.4, alive:true},
+  {x:1600, y:GROUND_Y-20, w:24, h:20, x1:1560, x2:1750, dir:1, speed:1.3, alive:true},
+  {x:1900, y:GROUND_Y-20, w:24, h:20, x1:1850, x2:2150, dir:-1, speed:1.5, alive:true},
+];
+
+let flag = {x: 2130, y: GROUND_Y-120, w:14, h:120};
+
+function rectsOverlap(a,b){
+  return a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y;
+}
+
+function resetPlayer(){
+  player.x = 40; player.y = 200; player.vx=0; player.vy=0; player.onGround=false; player.invuln=60;
+}
+
+function update(){
+  if(!running) return;
+
+  // horizontal movement
+  if(keys['ArrowLeft']||keys['a']||keys['A']){ player.vx = -player.speed; player.dir=-1; }
+  else if(keys['ArrowRight']||keys['d']||keys['D']){ player.vx = player.speed; player.dir=1; }
+  else { player.vx = 0; }
+
+  if((keys['ArrowUp']||keys[' ']||keys['w']||keys['W']) && player.onGround){
+    player.vy = -player.jumpPower;
+    player.onGround = false;
+  }
+
+  player.vy += GRAVITY;
+  if(player.vy > 14) player.vy = 14;
+
+  player.x += player.vx;
+  player.y += player.vy;
+
+  if(player.x < 0) player.x = 0;
+  if(player.x > LEVEL_WIDTH) player.x = LEVEL_WIDTH;
+
+  player.onGround = false;
+  platforms.forEach(p=>{
+    if(rectsOverlap(player,p)){
+      // falling onto top
+      const prevBottom = player.y + player.h - player.vy;
+      if(player.vy >= 0 && prevBottom <= p.y+2){
+        player.y = p.y - player.h;
+        player.vy = 0;
+        player.onGround = true;
+      } else if (player.vy < 0 && player.y - player.vy >= p.y+p.h-2) {
+        // hit head
+        player.y = p.y+p.h;
+        player.vy = 1;
+      } else {
+        // side collision
+        if(player.dir === 1) player.x = p.x - player.w;
+        else player.x = p.x + p.w;
+      }
+    }
+  });
+
+  // fell into pit
+  if(player.y > 400){
+    loseLife();
+  }
+
+  // coins
+  coins.forEach(c=>{
+    if(!c.taken && Math.abs((player.x+player.w/2)-c.x) < 18 && Math.abs((player.y+player.h/2)-c.y) < 18){
+      c.taken = true;
+      coinCount++;
+      score += 5;
+      coinsEl.textContent = coinCount;
+      scoreEl.textContent = score;
+    }
+  });
+
+  // enemies
+  if(player.invuln>0) player.invuln--;
+  enemies.forEach(e=>{
+    if(!e.alive) return;
+    e.x += e.speed*e.dir;
+    if(e.x < e.x1 || e.x > e.x2) e.dir *= -1;
+
+    if(rectsOverlap(player,e)){
+      const prevBottom = player.y + player.h - player.vy;
+      if(player.vy > 0 && prevBottom <= e.y+6){
+        e.alive = false;
+        player.vy = -8;
+        score += 20;
+        scoreEl.textContent = score;
+      } else if(player.invuln<=0){
+        loseLife();
+      }
+    }
+  });
+
+  // flag / win
+  if(rectsOverlap(player, flag)){
+    winGame();
+  }
+
+  // camera
+  camX = player.x - 200;
+  if(camX < 0) camX = 0;
+  if(camX > LEVEL_WIDTH - canvas.width + 60) camX = LEVEL_WIDTH - canvas.width + 60;
+}
+
+function loseLife(){
+  lives--;
+  livesEl.textContent = lives;
+  if(lives <= 0){
+    endGame(false);
+  } else {
+    resetPlayer();
+  }
+}
+
+function endGame(won){
+  running = false;
+  overlayTitle.textContent = won ? "🏁 ¡Ganaste!" : "💥 ¡Fin del juego!";
+  document.getElementById('finalScore').textContent = `Puntaje final: ${score} — Monedas: ${coinCount}`;
+  overlay.style.display = 'flex';
+}
+function winGame(){ endGame(true); }
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  // background hills (parallax-ish, simple)
+  ctx.fillStyle = '#7fc97f';
+  for(let i=0;i<8;i++){
+    const hx = (i*300 - camX*0.4) % (canvas.width+300);
+    ctx.beginPath();
+    ctx.arc(hx, 300, 60, Math.PI, 0);
+    ctx.fill();
+  }
+
+  ctx.save();
+  ctx.translate(-camX, 0);
+
+  // platforms
+  platforms.forEach(p=>{
+    ctx.fillStyle = '#8b5a2b';
+    ctx.fillRect(p.x, p.y, p.w, p.h);
+    ctx.fillStyle = '#3fa34d';
+    ctx.fillRect(p.x, p.y, p.w, 8);
+  });
+
+  // coins
+  coins.forEach(c=>{
+    if(c.taken) return;
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, 8, 0, Math.PI*2);
+    ctx.fillStyle = '#ffd700';
+    ctx.fill();
+    ctx.strokeStyle = '#b8860b';
+    ctx.stroke();
+  });
+
+  // enemies
+  enemies.forEach(e=>{
+    if(!e.alive) return;
+    ctx.fillStyle = '#8b3a3a';
+    ctx.beginPath();
+    ctx.ellipse(e.x+e.w/2, e.y+e.h/2, e.w/2, e.h/2, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = 'white';
+    ctx.beginPath();
+    ctx.arc(e.x+e.w/2-5, e.y+e.h/2-3, 3, 0, Math.PI*2);
+    ctx.arc(e.x+e.w/2+5, e.y+e.h/2-3, 3, 0, Math.PI*2);
+    ctx.fill();
+  });
+
+  // flag
+  ctx.fillStyle = '#555';
+  ctx.fillRect(flag.x, flag.y, 4, flag.h);
+  ctx.fillStyle = '#e63946';
+  ctx.beginPath();
+  ctx.moveTo(flag.x+4, flag.y);
+  ctx.lineTo(flag.x+34, flag.y+12);
+  ctx.lineTo(flag.x+4, flag.y+24);
+  ctx.fill();
+
+  // player
+  if(player.invuln<=0 || Math.floor(player.invuln/4)%2===0){
+    ctx.fillStyle = '#e63946';
+    ctx.fillRect(player.x, player.y, player.w, player.h);
+    ctx.fillStyle = '#ffe0b2';
+    ctx.fillRect(player.x+4, player.y+4, player.w-8, 10);
+    ctx.fillStyle = '#1d3557';
+    ctx.fillRect(player.x, player.y+18, player.w, 6);
+  }
+
+  ctx.restore();
+}
+
+function loop(){
+  update();
+  draw();
+  if(running) requestAnimationFrame(loop);
+}
+
+function restart(){
+  score=0; lives=3; coinCount=0;
+  scoreEl.textContent=0; livesEl.textContent=3; coinsEl.textContent=0;
+  coins.forEach(c=>c.taken=false);
+  enemies.forEach((e,i)=>{ e.alive=true; });
+  resetPlayer();
+  running = true;
+  overlay.style.display='none';
+  loop();
+}
+
+window.addEventListener('keydown', e=>{ keys[e.key]=true; if(e.key===' ') e.preventDefault(); });
+window.addEventListener('keyup', e=>{ keys[e.key]=false; });
+
+// touch buttons
+function bindHold(id, key){
+  const btn = document.getElementById(id);
+  const down = ev=>{ keys[key]=true; ev.preventDefault(); };
+  const up = ev=>{ keys[key]=false; ev.preventDefault(); };
+  btn.addEventListener('touchstart', down);
+  btn.addEventListener('touchend', up);
+  btn.addEventListener('mousedown', down);
+  btn.addEventListener('mouseup', up);
+  btn.addEventListener('mouseleave', up);
+}
+bindHold('btnLeft','ArrowLeft');
+bindHold('btnRight','ArrowRight');
+bindHold('btnJump',' ');
+
+resetPlayer();
+loop();
+</script>
+</body>
+</html>
