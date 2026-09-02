@@ -148,6 +148,21 @@ function tone(freq, duration, type='square', vol=0.15, delay=0){
   osc.stop(t0 + duration);
 }
 
+function playFile(path, vol=0.6){
+   if(muted) return;
+   const a = new Audio(path);
+   a.volume = vol;
+   a.play().catch(()=>{});
+ }
+ const sfx = {
+   jump(){ playFile('../sfx/jump.mp3'); },
+   coin(){ playFile('../sfx/coin.mp3'); },
+   stomp(){ playFile('../sfx/stomp.mp3'); },
+   hurt(){ playFile('../sfx/hurt.mp3'); },
+   win(){ playFile('../music/levelclear.mp3'); },
+   gameOver(){ playFile('../sfx/gameover.mp3'); }
+ };
+/*
 const sfx = {
   jump(){ tone(440,0.08,'square',0.12); tone(660,0.1,'square',0.1,0.05); },
   coin(){ tone(988,0.06,'square',0.12); tone(1319,0.12,'square',0.12,0.06); },
@@ -155,7 +170,26 @@ const sfx = {
   hurt(){ tone(220,0.15,'sawtooth',0.15); tone(140,0.2,'sawtooth',0.12,0.1); },
   win(){ [523.25,659.25,783.99,1046.5].forEach((f,i)=> tone(f,0.18,'square',0.13,i*0.15)); },
   gameOver(){ [392,349.23,293.66,220].forEach((f,i)=> tone(f,0.25,'triangle',0.15,i*0.2)); }
-};
+};*/
+
+// ---- ALTERNATIVA: para usar tus propios archivos de sonido en vez de los ----
+// ---- generados por código, reemplazá el bloque "const sfx = {...}" de   ----
+// ---- arriba por este de acá abajo (con tus propios archivos en /sfx/): ----
+//
+// function playFile(path, vol=0.6){
+//   if(muted) return;
+//   const a = new Audio(path);
+//   a.volume = vol;
+//   a.play().catch(()=>{});
+// }
+// const sfx = {
+//   jump(){ playFile('../sfx/jump.mp3'); },
+//   coin(){ playFile('../sfx/coin.mp3'); },
+//   stomp(){ playFile('../sfx/stomp.mp3'); },
+//   hurt(){ playFile('../sfx/hurt.mp3'); },
+//   win(){ playFile('../sfx/win.mp3'); },
+//   gameOver(){ playFile('../sfx/gameover.mp3'); }
+// };
 
 const bgMusic = document.getElementById('bgMusic');
 bgMusic.volume = 0.4;
