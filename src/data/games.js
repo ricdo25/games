@@ -29,11 +29,11 @@ export const games = [
   path: 'games/memoria.html',
 },
 {
-  id: 'pepsi',
-  title: 'Pepsi Man',
-  description: 'Pepsi man fan game.',
-  emoji: '🥤',
-  category: 'Fan game',
-  path: 'games/pepsiman.html',
+  id: 'espacial',
+  title: 'Defensor Espacial',
+  description: 'Lucha por la supervivencia del espacio.',
+  emoji: '🔫',
+  category: 'Arcade',
+  path: 'games/defensorespacial.html',
 },
 ]
