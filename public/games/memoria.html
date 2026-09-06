@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Memoria</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background: radial-gradient(circle at top, #2d1b4e, #0f0a1f 70%);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Segoe UI', Arial, sans-serif;
+    color: white;
+    padding: 20px;
+  }
+  h1 {
+    font-size: 26px;
+    background: linear-gradient(90deg, #fbbf24, #f472b6, #60a5fa);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    margin-bottom: 6px;
+  }
+  #hud {
+    display: flex;
+    gap: 24px;
+    font-size: 15px;
+    color: #cbbfe8;
+    margin-bottom: 16px;
+  }
+  #hud span { color: #fbbf24; font-weight: bold; }
+
+  #board {
+    display: grid;
+    gap: 10px;
+    perspective: 800px;
+  }
+
+  .card {
+    width: 70px;
+    height: 70px;
+    position: relative;
+    cursor: pointer;
+    transform-style: preserve-3d;
+    transition: transform 0.35s ease;
+  }
+  .card.flipped, .card.matched { transform: rotateY(180deg); }
+
+  .card-face {
+    position: absolute;
+    inset: 0;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 32px;
+    backface-visibility: hidden;
+  }
+  .card-back {
+    background: linear-gradient(135deg, #35284f, #1b1430);
+    border: 2px solid #4a3a72;
+  }
+  .card-back::after { content: "❓"; font-size: 24px; opacity: 0.5; }
+  .card-front {
+    background: #1b1430;
+    border: 2px solid #fbbf24;
+    transform: rotateY(180deg);
+  }
+  .card.matched .card-front {
+    border-color: #4ade80;
+    background: #16311f;
+  }
+
+  #controls {
+    margin-top: 22px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  select, button {
+    background: #1b1430;
+    border: 1px solid #4a3a72;
+    color: white;
+    padding: 9px 14px;
+    border-radius: 8px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  button.primary {
+    background: #fbbf24;
+    color: #1b1430;
+    font-weight: bold;
+    border: none;
+  }
+  #btnMute {
+    padding: 9px 12px;
+  }
+
+  #overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.75);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    text-align: center;
+    z-index: 10;
+  }
+  #overlay h2 { font-size: 32px; color: #fbbf24; margin-bottom: 10px; }
+  #overlay p { color: #cbbfe8; margin-bottom: 6px; }
+  #overlay button { margin-top: 18px; }
+</style>
+</head>
+<body>
+
+<h1>🧠 Juego de Memoria</h1>
+<div id="hud">
+  Movimientos: <span id="moves">0</span>
+  Tiempo: <span id="time">0s</span>
+  <button id="btnMute" style="padding:2px 10px;font-size:13px;">🔊</button>
+</div>
+
+<div id="board"></div>
+
+<div id="controls">
+  <label>Tamaño:
+    <select id="difficulty">
+      <option value="4x4">4 x 4 (fácil)</option>
+      <option value="4x6">4 x 6 (medio)</option>
+      <option value="6x6">6 x 6 (difícil)</option>
+    </select>
+  </label>
+  <button class="primary" id="btnNew">🔀 Nueva partida</button>
+</div>
+
+<div id="overlay">
+  <h2>🎉 ¡Completado!</h2>
+  <p id="summary"></p>
+  <button class="primary" onclick="startGame()">Jugar de nuevo</button>
+</div>
+
+<script>
+// ---------- audio: sonidos generados por código ----------
+let audioCtx = null;
+let muted = false;
+function ensureAudio(){
+  if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if(audioCtx.state === 'suspended') audioCtx.resume();
+}
+function tone(freq, duration, type='square', vol=0.15, delay=0){
+  if(muted || !audioCtx) return;
+  const t0 = audioCtx.currentTime + delay;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, t0);
+  gain.gain.setValueAtTime(vol, t0);
+  gain.gain.exponentialRampToValueAtTime(0.001, t0 + duration);
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  osc.start(t0); osc.stop(t0 + duration);
+}
+const sfx = {
+  flip(){ tone(500,0.06,'square',0.1); },
+  match(){ tone(784,0.08,'square',0.12); tone(1046.5,0.14,'square',0.12,0.08); },
+  mismatch(){ tone(220,0.15,'sawtooth',0.1); },
+  win(){ [523.25,659.25,783.99,1046.5,1318.5].forEach((f,i)=> tone(f,0.16,'square',0.13,i*0.13)); }
+};
+window.addEventListener('pointerdown', ()=> ensureAudio(), {once:true});
+const btnMute = document.getElementById('btnMute');
+btnMute.addEventListener('click', ()=>{
+  ensureAudio();
+  muted = !muted;
+  btnMute.textContent = muted ? '🔇' : '🔊';
+});
+// ---------- fin audio ----------
+
+const EMOJIS = ['🍎','🍌','🍇','🍉','🍕','🍩','⚽','🏀','🎈','🚗','🎸','🎲','🐶','🐱','🦊','🐸','🌵','🌈','⭐','🍓','🍒','🥑','🎧','🚀'];
+
+const board = document.getElementById('board');
+const movesEl = document.getElementById('moves');
+const timeEl = document.getElementById('time');
+const overlay = document.getElementById('overlay');
+const difficultySel = document.getElementById('difficulty');
+document.getElementById('btnNew').addEventListener('click', startGame);
+
+let cards = [];
+let flipped = [];
+let matches = 0;
+let moves = 0;
+let locked = false;
+let timerInterval = null;
+let seconds = 0;
+
+// Fisher-Yates: mezcla realmente al azar cada vez que se llama
+function shuffle(arr){
+  const a = arr.slice();
+  for(let i = a.length - 1; i > 0; i--){
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function getDims(){
+  const val = difficultySel.value;
+  if(val === '4x4') return {cols:4, rows:4};
+  if(val === '4x6') return {cols:4, rows:6};
+  return {cols:6, rows:6};
+}
+
+function startGame(){
+  overlay.style.display = 'none';
+  clearInterval(timerInterval);
+  seconds = 0;
+  moves = 0;
+  matches = 0;
+  flipped = [];
+  locked = false;
+  movesEl.textContent = 0;
+  timeEl.textContent = '0s';
+
+  const { cols, rows } = getDims();
+  const pairCount = (cols * rows) / 2;
+  const chosenEmojis = shuffle(EMOJIS).slice(0, pairCount);
+  const deck = shuffle([...chosenEmojis, ...chosenEmojis]); // cada partida queda en un orden distinto
+
+  board.style.gridTemplateColumns = `repeat(${cols}, 70px)`;
+  board.innerHTML = '';
+  cards = deck.map((emoji, i) => ({ id:i, emoji, matched:false }));
+
+  cards.forEach(card => {
+    const el = document.createElement('div');
+    el.className = 'card';
+    el.dataset.id = card.id;
+    el.innerHTML = `
+      <div class="card-face card-back"></div>
+      <div class="card-face card-front">${card.emoji}</div>
+    `;
+    el.addEventListener('click', () => onCardClick(card.id, el));
+    board.appendChild(el);
+  });
+
+  timerInterval = setInterval(() => {
+    seconds++;
+    timeEl.textContent = seconds + 's';
+  }, 1000);
+}
+
+function onCardClick(id, el){
+  if(locked) return;
+  const card = cards.find(c => c.id === id);
+  if(card.matched || flipped.some(f => f.id === id)) return;
+
+  ensureAudio();
+  sfx.flip();
+  el.classList.add('flipped');
+  flipped.push({ id, el, emoji: card.emoji });
+
+  if(flipped.length === 2){
+    moves++;
+    movesEl.textContent = moves;
+    locked = true;
+
+    if(flipped[0].emoji === flipped[1].emoji){
+      flipped.forEach(f => {
+        f.el.classList.add('matched');
+        cards.find(c => c.id === f.id).matched = true;
+      });
+      matches++;
+      sfx.match();
+      flipped = [];
+      locked = false;
+      checkWin();
+    } else {
+      sfx.mismatch();
+      setTimeout(() => {
+        flipped.forEach(f => f.el.classList.remove('flipped'));
+        flipped = [];
+        locked = false;
+      }, 700);
+    }
+  }
+}
+
+function checkWin(){
+  const totalPairs = cards.length / 2;
+  if(matches === totalPairs){
+    clearInterval(timerInterval);
+    sfx.win();
+    document.getElementById('summary').textContent =
+      `Lo lograste en ${moves} movimientos y ${seconds} segundos.`;
+    setTimeout(() => { overlay.style.display = 'flex'; }, 400);
+  }
+}
+
+difficultySel.addEventListener('change', startGame);
+startGame();
+</script>
+</body>
+</html>

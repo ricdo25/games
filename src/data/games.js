@@ -20,4 +20,12 @@ export const games = [
     category: 'Plataformas',
     path: 'games/mini-aventura.html',
   },
+  {
+  id: 'memoria',
+  title: 'Juego de Memoria',
+  description: 'Encontrá las parejas de cartas. Se mezclan al azar en cada partida.',
+  emoji: '🧠',
+  category: 'Memoria',
+  path: 'games/memoria.html',
+},
 ]
