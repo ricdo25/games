@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Caza Monstruos</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background: radial-gradient(circle at top, #1e1533, #0b0817 70%);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Segoe UI', Arial, sans-serif;
+    color: white;
+    overflow: hidden;
+    touch-action: none;
+    padding: 10px;
+  }
+  h1 {
+    font-size: 24px;
+    color: #fbbf24;
+    text-shadow: 2px 2px 0 #7c3aed;
+    margin-bottom: 6px;
+  }
+  #hud {
+    display: flex;
+    gap: 20px;
+    font-size: 14px;
+    color: #b8b3d1;
+    margin-bottom: 8px;
+    align-items: center;
+  }
+  #hud span { color: #fbbf24; font-weight: bold; }
+  #btnMute {
+    background: rgba(255,255,255,0.1);
+    border: none;
+    color: white;
+    padding: 4px 10px;
+    border-radius: 8px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  canvas {
+    background: #150f26;
+    border: 3px solid #3a2a5c;
+    border-radius: 10px;
+    box-shadow: 0 0 25px rgba(124,58,237,0.25);
+  }
+  #msg {
+    margin-top: 10px;
+    font-size: 12px;
+    color: #9c92c2;
+    text-align: center;
+    max-width: 320px;
+  }
+  #controls {
+    display: flex;
+    gap: 10px;
+    margin-top: 12px;
+  }
+  #controls button {
+    width: 54px;
+    height: 46px;
+    font-size: 18px;
+    border: none;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.12);
+    color: white;
+    font-weight: bold;
+    cursor: pointer;
+  }
+  #btnRotate { background: rgba(251,191,36,0.25); }
+  #overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.8);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    text-align: center;
+    z-index: 10;
+  }
+  #overlay h2 { font-size: 30px; color: #fbbf24; margin-bottom: 10px; }
+  #overlay button {
+    margin-top: 18px;
+    padding: 12px 28px;
+    font-size: 16px;
+    background: #fbbf24;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: bold;
+  }
+</style>
+</head>
+<body>
+
+<h1>👾 Caza Monstruos</h1>
+<div id="hud">
+  Puntos: <span id="score">0</span>
+  Monstruos: <span id="virusCount">0</span>
+  <button id="btnMute">🔊</button>
+</div>
+<canvas id="game" width="224" height="364"></canvas>
+<p id="msg">← → mover, ↑ rotar, ↓ caída rápida, Espacio caída instantánea. Alineá 3 del mismo color junto a un monstruo para destruirlo.</p>
+
+<div id="controls">
+  <button id="btnLeft">◀</button>
+  <button id="btnRotate">⟳</button>
+  <button id="btnRight">▶</button>
+  <button id="btnDown">▼</button>
+</div>
+
+<div id="overlay">
+  <h2 id="overlayTitle">¡Fin del juego!</h2>
+  <p id="finalScore"></p>
+  <button onclick="restart()">Jugar de nuevo</button>
+</div>
+
+<audio id="bgMusic" loop preload="auto"></audio>
+
+<script>
+// ---------- audio ----------
+let audioCtx = null;
+let muted = false;
+function ensureAudio(){
+  if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if(audioCtx.state === 'suspended') audioCtx.resume();
+}
+function tone(freq, duration, type='square', vol=0.13, delay=0){
+  if(muted || !audioCtx) return;
+  const t0 = audioCtx.currentTime + delay;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, t0);
+  gain.gain.setValueAtTime(vol, t0);
+  gain.gain.exponentialRampToValueAtTime(0.001, t0 + duration);
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  osc.start(t0); osc.stop(t0 + duration);
+}
+const sfx = {
+  move(){ tone(300,0.04,'square',0.06); },
+  rotate(){ tone(500,0.05,'square',0.08); },
+  lock(){ tone(140,0.08,'square',0.1); },
+  clear(n){ [660,880,1046.5].slice(0, Math.min(3,n+1)).forEach((f,i)=> tone(f,0.12,'square',0.13,i*0.06)); },
+  win(){ [523.25,659.25,783.99,1046.5,1318.5].forEach((f,i)=> tone(f,0.16,'square',0.13,i*0.13)); },
+  gameOver(){ [392,349.23,293.66,220].forEach((f,i)=> tone(f,0.25,'triangle',0.15,i*0.2)); }
+};
+
+const musicTracks = ['../music/ambientchill.mp3', '../music/ambientfever.mp3'];
+const bgMusic = document.getElementById('bgMusic');
+bgMusic.volume = 0.35;
+function pickAndPlayMusic(){
+  const track = musicTracks[Math.floor(Math.random()*musicTracks.length)];
+  bgMusic.src = track;
+  bgMusic.currentTime = 0;
+  bgMusic.play().catch(()=>{});
+}
+function stopMusic(){ bgMusic.pause(); }
+
+const btnMute = document.getElementById('btnMute');
+btnMute.addEventListener('click', ()=>{
+  ensureAudio();
+  muted = !muted;
+  bgMusic.muted = muted;
+  btnMute.textContent = muted ? '🔇' : '🔊';
+});
+// ---------- fin audio ----------
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+const virusCountEl = document.getElementById('virusCount');
+const overlay = document.getElementById('overlay');
+const overlayTitle = document.getElementById('overlayTitle');
+
+const COLS = 8, ROWS = 14, CELL = 28;
+const COLORS = { Y:'#fbbf24', B:'#3b82f6', R:'#ef4444' };
+const COLOR_KEYS = ['Y','B','R'];
+
+let grid; // grid[row][col] = null | {color, isVirus}
+let score = 0;
+let virusCount = 0;
+let running = true;
+let dropTimer = 0;
+let dropInterval = 34;
+let moveTimer = 0;
+let keys = {};
+let piece; // {r,c,color1,color2,state}
+
+function emptyGrid(){
+  return Array.from({length:ROWS}, () => Array(COLS).fill(null));
+}
+
+function placeViruses(count){
+  let placed = 0;
+  let attempts = 0;
+  while(placed < count && attempts < 2000){
+    attempts++;
+    const r = ROWS - 2 - Math.floor(Math.random() * 8); // en la mitad inferior
+    const c = Math.floor(Math.random() * COLS);
+    if(!grid[r][c]){
+      grid[r][c] = { color: COLOR_KEYS[Math.floor(Math.random()*3)], isVirus: true };
+      placed++;
+    }
+  }
+  virusCount = placed;
+  virusCountEl.textContent = virusCount;
+}
+
+function randomColor(){ return COLOR_KEYS[Math.floor(Math.random()*3)]; }
+
+function otherCell(p){
+  // devuelve {r,c} de la segunda mitad según el estado de rotación
+  if(p.state === 0) return { r:p.r, c:p.c+1 };
+  if(p.state === 1) return { r:p.r-1, c:p.c };
+  if(p.state === 2) return { r:p.r, c:p.c-1 };
+  return { r:p.r+1, c:p.c };
+}
+
+function cellFree(r,c){
+  return r>=0 && r<ROWS && c>=0 && c<COLS && !grid[r][c];
+}
+
+function spawnPiece(){
+  const startCol = Math.floor(COLS/2) - 1;
+  piece = { r:0, c:startCol, color1: randomColor(), color2: randomColor(), state:0 };
+  const o = otherCell(piece);
+  if(!cellFree(piece.r, piece.c) || !cellFree(o.r, o.c)){
+    endGame(false);
+  }
+}
+
+function tryMove(dr,dc){
+  const nr = piece.r + dr, nc = piece.c + dc;
+  const o = otherCell({...piece, r:nr, c:nc});
+  if(cellFree(nr,nc) && cellFree(o.r,o.c)){
+    piece.r = nr; piece.c = nc;
+    return true;
+  }
+  return false;
+}
+
+function rotatePiece(){
+  if(!running) return;
+  const newState = (piece.state + 1) % 4;
+  const test = { ...piece, state:newState };
+  const o = otherCell(test);
+  if(cellFree(test.r,test.c) && cellFree(o.r,o.c)){
+    piece.state = newState;
+    sfx.rotate();
+    return;
+  }
+  // intento de kick simple hacia la izquierda o derecha
+  for(const dc of [-1,1]){
+    const test2 = { ...piece, c:piece.c+dc, state:newState };
+    const o2 = otherCell(test2);
+    if(cellFree(test2.r,test2.c) && cellFree(o2.r,o2.c)){
+      piece.c += dc; piece.state = newState;
+      sfx.rotate();
+      return;
+    }
+  }
+}
+
+let pieceIdCounter = 0;
+
+function lockPiece(){
+  const o = otherCell(piece);
+  const pid = pieceIdCounter++;
+  if(piece.r>=0) grid[piece.r][piece.c] = { color: piece.color1, isVirus:false, pairId: pid };
+  if(o.r>=0) grid[o.r][o.c] = { color: piece.color2, isVirus:false, pairId: pid };
+  sfx.lock();
+  resolveBoard();
+  if(virusCount <= 0){
+    endGame(true);
+  } else {
+    spawnPiece();
+  }
+}
+
+function hardDrop(){
+  if(!running) return;
+  while(tryMove(1,0)){}
+  lockPiece();
+}
+
+// Mueve cada celda respetando su "pareja": si las dos mitades de una cápsula
+// siguen intactas, caen juntas como un bloque rígido. Si una mitad ya fue
+// destruida en una combinación, la que queda cae sola, como un bloque suelto.
+function applyGravityPass(){
+  let moved = false;
+  const processed = new Set();
+
+  function findPartner(r,c,cell){
+    if(cell.pairId == null) return null;
+    const neighbors = [[r,c+1],[r,c-1],[r+1,c],[r-1,c]];
+    for(const [nr,nc] of neighbors){
+      if(nr>=0 && nr<ROWS && nc>=0 && nc<COLS){
+        const nb = grid[nr][nc];
+        if(nb && !nb.isVirus && nb.pairId === cell.pairId) return {r:nr,c:nc};
+      }
+    }
+    return null;
+  }
+
+  for(let r=ROWS-2;r>=0;r--){
+    for(let c=0;c<COLS;c++){
+      const key = r+','+c;
+      if(processed.has(key)) continue;
+      const cell = grid[r][c];
+      if(!cell || cell.isVirus) continue;
+
+      const partner = findPartner(r,c,cell);
+
+      if(!partner){
+        // bloque suelto (su pareja ya fue destruida): cae solo
+        if(grid[r+1][c] === null){
+          grid[r+1][c] = cell;
+          grid[r][c] = null;
+          moved = true;
+        }
+        processed.add(key);
+      } else if(partner.c === c){
+        // pareja vertical: se mueven juntas, una sobre la otra
+        const topR = Math.min(r, partner.r);
+        const botR = Math.max(r, partner.r);
+        processed.add(topR+','+c);
+        processed.add(botR+','+c);
+        if(botR+1 < ROWS && grid[botR+1][c] === null){
+          const topCell = grid[topR][c];
+          const botCell = grid[botR][c];
+          grid[botR+1][c] = botCell;
+          grid[topR+1][c] = topCell;
+          grid[topR][c] = null;
+          moved = true;
+        }
+      } else {
+        // pareja horizontal: se mueven juntas, lado a lado
+        const c1 = Math.min(c, partner.c), c2 = Math.max(c, partner.c);
+        processed.add(r+','+c1);
+        processed.add(r+','+c2);
+        if(r+1 < ROWS && grid[r+1][c1] === null && grid[r+1][c2] === null){
+          grid[r+1][c1] = grid[r][c1];
+          grid[r+1][c2] = grid[r][c2];
+          grid[r][c1] = null;
+          grid[r][c2] = null;
+          moved = true;
+        }
+      }
+    }
+  }
+  return moved;
+}
+
+function findMatches(){
+  const marks = new Set();
+  // horizontal
+  for(let r=0;r<ROWS;r++){
+    let runStart = 0;
+    for(let c=1;c<=COLS;c++){
+      const prev = grid[r][c-1];
+      const cur = c<COLS ? grid[r][c] : null;
+      const sameColor = prev && cur && prev.color === cur.color;
+      if(!sameColor){
+        if(c - runStart >= 3 && grid[r][runStart]){
+          for(let k=runStart;k<c;k++) marks.add(r+','+k);
+        }
+        runStart = c;
+      }
+    }
+  }
+  // vertical
+  for(let c=0;c<COLS;c++){
+    let runStart = 0;
+    for(let r=1;r<=ROWS;r++){
+      const prev = grid[r-1][c];
+      const cur = r<ROWS ? grid[r][c] : null;
+      const sameColor = prev && cur && prev.color === cur.color;
+      if(!sameColor){
+        if(r - runStart >= 3 && grid[runStart][c]){
+          for(let k=runStart;k<r;k++) marks.add(k+','+c);
+        }
+        runStart = r;
+      }
+    }
+  }
+  return marks;
+}
+
+function resolveBoard(){
+  let changed = true;
+  while(changed){
+    changed = false;
+    while(applyGravityPass()){ changed = true; }
+    const marks = findMatches();
+    if(marks.size){
+      let clearedViruses = 0;
+      marks.forEach(key => {
+        const [r,c] = key.split(',').map(Number);
+        if(grid[r][c] && grid[r][c].isVirus){ clearedViruses++; virusCount--; }
+        grid[r][c] = null;
+      });
+      score += marks.size * 10 + clearedViruses * 40;
+      scoreEl.textContent = score;
+      virusCountEl.textContent = Math.max(0, virusCount);
+      sfx.clear(marks.size);
+      changed = true;
+    }
+  }
+}
+
+function update(){
+  if(!running) return;
+
+  moveTimer--;
+  if(keys['ArrowLeft'] && moveTimer<=0){ if(tryMove(0,-1)) sfx.move(); moveTimer = 8; }
+  else if(keys['ArrowRight'] && moveTimer<=0){ if(tryMove(0,1)) sfx.move(); moveTimer = 8; }
+
+  const interval = keys['ArrowDown'] ? 4 : dropInterval;
+  dropTimer++;
+  if(dropTimer >= interval){
+    dropTimer = 0;
+    if(!tryMove(1,0)){
+      lockPiece();
+    }
+  }
+}
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle = '#150f26';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  // grid lock cells
+  for(let r=0;r<ROWS;r++){
+    for(let c=0;c<COLS;c++){
+      const cell = grid[r][c];
+      if(cell) drawCell(r,c,cell.color,cell.isVirus);
+    }
+  }
+
+  // piece cayendo
+  if(running && piece){
+    const o = otherCell(piece);
+    if(piece.r>=0) drawCell(piece.r, piece.c, piece.color1, false);
+    if(o.r>=0) drawCell(o.r, o.c, piece.color2, false);
+  }
+}
+
+function drawCell(r,c,color,isVirus){
+  const x = c*CELL, y = r*CELL;
+  ctx.fillStyle = COLORS[color];
+  if(isVirus){
+    ctx.beginPath();
+    ctx.arc(x+CELL/2, y+CELL/2, CELL/2-3, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = 'white';
+    ctx.beginPath();
+    ctx.arc(x+CELL/2-6, y+CELL/2-3, 3, 0, Math.PI*2);
+    ctx.arc(x+CELL/2+6, y+CELL/2-3, 3, 0, Math.PI*2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(x+CELL/2, y+CELL/2+5, 4, 0, Math.PI);
+    ctx.stroke();
+  } else {
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(x+2,y+2,CELL-4,CELL-4,6) : ctx.rect(x+2,y+2,CELL-4,CELL-4);
+    ctx.fill();
+  }
+}
+
+function loop(){
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+function endGame(won){
+  running = false;
+  stopMusic();
+  if(won) sfx.win(); else sfx.gameOver();
+  overlayTitle.textContent = won ? "🏆 ¡Ganaste!" : "💀 ¡Fin del juego!";
+  document.getElementById('finalScore').textContent = `Puntaje final: ${score}`;
+  overlay.style.display = 'flex';
+}
+
+function restart(){
+  grid = emptyGrid();
+  placeViruses(12);
+  score = 0; scoreEl.textContent = 0;
+  dropTimer = 0; dropInterval = 34;
+  running = true;
+  overlay.style.display = 'none';
+  ensureAudio();
+  pickAndPlayMusic();
+  spawnPiece();
+}
+
+window.addEventListener('keydown', e=>{
+  if(['ArrowLeft','ArrowRight','ArrowDown',' '].includes(e.key)) e.preventDefault();
+  keys[e.key] = true;
+  if(e.key === 'ArrowUp' && !e.repeat) rotatePiece();
+  if(e.key === ' ' && !e.repeat) hardDrop();
+});
+window.addEventListener('keyup', e=>{ keys[e.key] = false; });
+
+function bindHold(id, key){
+  const btn = document.getElementById(id);
+  const down = ev=>{ keys[key]=true; ev.preventDefault(); };
+  const up = ev=>{ keys[key]=false; ev.preventDefault(); };
+  btn.addEventListener('touchstart', down);
+  btn.addEventListener('touchend', up);
+  btn.addEventListener('mousedown', down);
+  btn.addEventListener('mouseup', up);
+  btn.addEventListener('mouseleave', up);
+}
+bindHold('btnLeft','ArrowLeft');
+bindHold('btnRight','ArrowRight');
+bindHold('btnDown','ArrowDown');
+document.getElementById('btnRotate').addEventListener('click', rotatePiece);
+
+window.addEventListener('keydown', ()=> { ensureAudio(); }, {once:true});
+window.addEventListener('touchstart', ()=> { ensureAudio(); }, {once:true});
+window.addEventListener('mousedown', ()=> { ensureAudio(); }, {once:true});
+
+restart();
+loop();
+</script>
+</body>
+</html>

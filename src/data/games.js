@@ -36,4 +36,12 @@ export const games = [
   category: 'Arcade',
   path: 'games/defensorespacial.html',
 },
+{
+  id: 'monstruos',
+  title: 'Caza Monstruos',
+  description: 'Extermina a los monstruos.',
+  emoji: '.👾',
+  category: 'Arcade',
+  path: 'games/cazamonstruos.html',
+},
 ]
