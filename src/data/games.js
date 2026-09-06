@@ -28,4 +28,12 @@ export const games = [
   category: 'Memoria',
   path: 'games/memoria.html',
 },
+{
+  id: 'pepsi',
+  title: 'Pepsi Man',
+  description: 'Pepsi man fan game.',
+  emoji: '🥤',
+  category: 'Fan game',
+  path: 'games/pepsiman.html',
+},
 ]
