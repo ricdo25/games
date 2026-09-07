@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Carrera Loca</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background: radial-gradient(circle at top, #1a2332, #0a0e17 70%);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Segoe UI', Arial, sans-serif;
+    color: white;
+    overflow: hidden;
+    touch-action: none;
+    padding: 10px;
+  }
+  h1 {
+    font-size: 24px;
+    color: #fbbf24;
+    text-shadow: 0 0 10px rgba(251,191,36,0.5);
+    margin-bottom: 6px;
+  }
+  #hud {
+    display: flex;
+    gap: 20px;
+    font-size: 15px;
+    color: #a9b7c9;
+    margin-bottom: 8px;
+    align-items: center;
+  }
+  #hud span { color: #fbbf24; font-weight: bold; }
+  #btnMute {
+    background: rgba(255,255,255,0.1);
+    border: none;
+    color: white;
+    padding: 4px 10px;
+    border-radius: 8px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  canvas {
+    background: #2d2d2d;
+    border: 3px solid #3a3a3a;
+    border-radius: 10px;
+    box-shadow: 0 0 25px rgba(0,0,0,0.4);
+    max-width: 100%;
+  }
+  #msg {
+    margin-top: 10px;
+    font-size: 12px;
+    color: #8fa0b8;
+    text-align: center;
+    max-width: 320px;
+  }
+  #controls {
+    display: flex;
+    gap: 14px;
+    margin-top: 12px;
+  }
+  #controls button {
+    width: 64px;
+    height: 50px;
+    font-size: 20px;
+    border: none;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.12);
+    color: white;
+    font-weight: bold;
+    cursor: pointer;
+  }
+  #overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.8);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    text-align: center;
+    z-index: 10;
+  }
+  #overlay h2 { font-size: 30px; color: #fbbf24; margin-bottom: 10px; }
+  #overlay button {
+    margin-top: 18px;
+    padding: 12px 28px;
+    font-size: 16px;
+    background: #fbbf24;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: bold;
+  }
+</style>
+</head>
+<body>
+
+<h1>🏎️ Carrera Loca</h1>
+<div id="hud">
+  Distancia: <span id="distance">0</span>m
+  Vidas: <span id="lives">3</span>
+  <button id="btnMute">🔊</button>
+</div>
+<canvas id="game" width="320" height="500"></canvas>
+<p id="msg">Flechas o WASD para moverte en las cuatro direcciones. Esquivá los autos que vienen de frente.</p>
+
+<div id="controls">
+  <button id="btnLeft">◀</button>
+  <div style="display:flex;flex-direction:column;gap:8px;">
+    <button id="btnUp">▲</button>
+    <button id="btnDown">▼</button>
+  </div>
+  <button id="btnRight">▶</button>
+</div>
+
+<div id="overlay">
+  <h2 id="overlayTitle">💥 ¡Choque!</h2>
+  <p id="finalScore"></p>
+  <button onclick="restart()">Jugar de nuevo</button>
+</div>
+
+<audio id="bgMusic" loop preload="auto"></audio>
+
+<script>
+// ---------- audio ----------
+let audioCtx = null;
+let muted = false;
+function ensureAudio(){
+  if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if(audioCtx.state === 'suspended') audioCtx.resume();
+}
+function tone(freq, duration, type='square', vol=0.13, delay=0){
+  if(muted || !audioCtx) return;
+  const t0 = audioCtx.currentTime + delay;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, t0);
+  gain.gain.setValueAtTime(vol, t0);
+  gain.gain.exponentialRampToValueAtTime(0.001, t0 + duration);
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  osc.start(t0); osc.stop(t0 + duration);
+}
+const sfx = {
+  crash(){ tone(140,0.18,'sawtooth',0.16); tone(80,0.22,'sawtooth',0.13,0.06); },
+  milestone(){ tone(880,0.08,'square',0.1); tone(1174.7,0.1,'square',0.1,0.06); },
+  gameOver(){ [392,349.23,293.66,220].forEach((f,i)=> tone(f,0.25,'triangle',0.15,i*0.2)); }
+};
+const musicTracks = ['../music/ambientdonutplains.mp3', '../music/ambientrainbow.mp3'];
+const bgMusic = document.getElementById('bgMusic');
+bgMusic.volume = 0.35;
+function pickAndPlayMusic(){
+  const track = musicTracks[Math.floor(Math.random()*musicTracks.length)];
+  bgMusic.src = track;
+  bgMusic.currentTime = 0;
+  bgMusic.play().catch(()=>{});
+}
+function stopMusic(){ bgMusic.pause(); }
+const btnMute = document.getElementById('btnMute');
+btnMute.addEventListener('click', ()=>{
+  ensureAudio();
+  muted = !muted;
+  bgMusic.muted = muted;
+  btnMute.textContent = muted ? '🔇' : '🔊';
+});
+// ---------- fin audio ----------
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const distanceEl = document.getElementById('distance');
+const livesEl = document.getElementById('lives');
+const overlay = document.getElementById('overlay');
+const overlayTitle = document.getElementById('overlayTitle');
+
+const ROAD_MARGIN = 30; // pasto a los costados
+const roadLeft = ROAD_MARGIN, roadRight = canvas.width - ROAD_MARGIN;
+
+let player = { x: canvas.width/2 - 16, y: canvas.height - 90, w: 32, h: 54, speed: 4.2 };
+const PLAYER_MIN_Y = 60;
+const PLAYER_MAX_Y = canvas.height - 90;
+let traffic = [];
+let dashOffset = 0;
+let distance = 0;
+let lives = 3;
+let running = true;
+let keys = {};
+let spawnTimer = 0;
+let spawnInterval = 70;
+let trafficSpeedBase = 3;
+let invuln = 0;
+let nextMilestone = 500;
+
+function rectsOverlap(a,b){
+  return a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y;
+}
+
+const CAR_COLORS = ['#ef4444', '#3b82f6', '#a855f7', '#f97316', '#22c55e'];
+
+function spawnCar(){
+  const w = 32, h = 54;
+  const x = roadLeft + Math.random() * (roadRight - roadLeft - w);
+  traffic.push({
+    x, y: -h, w, h,
+    speed: trafficSpeedBase + Math.random()*1.5,
+    color: CAR_COLORS[Math.floor(Math.random()*CAR_COLORS.length)]
+  });
+}
+
+function update(){
+  if(!running) return;
+
+  if(keys['ArrowLeft']||keys['a']||keys['A']) player.x -= player.speed;
+  if(keys['ArrowRight']||keys['d']||keys['D']) player.x += player.speed;
+  player.x = Math.max(roadLeft, Math.min(roadRight - player.w, player.x));
+
+  if(keys['ArrowUp']||keys['w']||keys['W']) player.y -= player.speed;
+  if(keys['ArrowDown']||keys['s']||keys['S']) player.y += player.speed;
+  player.y = Math.max(PLAYER_MIN_Y, Math.min(PLAYER_MAX_Y, player.y));
+
+  // dificultad progresiva
+  if(spawnInterval > 28) spawnInterval = 70 - Math.floor(distance/40);
+  if(trafficSpeedBase < 7) trafficSpeedBase = 3 + distance/400;
+
+  spawnTimer++;
+  if(spawnTimer > spawnInterval){ spawnCar(); spawnTimer = 0; }
+
+  traffic.forEach(t => t.y += t.speed);
+  traffic = traffic.filter(t => t.y < canvas.height + 60);
+
+  if(invuln > 0) invuln--;
+  for(let i = traffic.length - 1; i >= 0; i--){
+    if(invuln <= 0 && rectsOverlap(player, traffic[i])){
+      traffic.splice(i,1);
+      loseLife();
+    }
+  }
+
+  distance += trafficSpeedBase * 0.12;
+  distanceEl.textContent = Math.floor(distance);
+  if(distance > nextMilestone){
+    sfx.milestone();
+    nextMilestone += 500;
+  }
+
+  dashOffset += trafficSpeedBase;
+  if(dashOffset > 40) dashOffset = 0;
+}
+
+function loseLife(){
+  lives--;
+  livesEl.textContent = lives;
+  invuln = 70;
+  sfx.crash();
+  if(lives <= 0) endGame();
+}
+
+function endGame(){
+  running = false;
+  stopMusic();
+  sfx.gameOver();
+  overlayTitle.textContent = "💥 ¡Choque!";
+  document.getElementById('finalScore').textContent = `Distancia recorrida: ${Math.floor(distance)}m`;
+  overlay.style.display = 'flex';
+}
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  // pasto
+  ctx.fillStyle = '#2f7d3a';
+  ctx.fillRect(0,0,roadLeft,canvas.height);
+  ctx.fillRect(roadRight,0,canvas.width-roadRight,canvas.height);
+
+  // carretera
+  ctx.fillStyle = '#3a3a3a';
+  ctx.fillRect(roadLeft,0,roadRight-roadLeft,canvas.height);
+
+  // lineas discontinuas centrales (dan sensación de movimiento)
+  ctx.strokeStyle = '#f4d35e';
+  ctx.lineWidth = 4;
+  ctx.setLineDash([20, 20]);
+  ctx.lineDashOffset = -dashOffset;
+  ctx.beginPath();
+  ctx.moveTo(canvas.width/2, 0);
+  ctx.lineTo(canvas.width/2, canvas.height);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // bordes de la carretera
+  ctx.fillStyle = '#f1f5f9';
+  ctx.fillRect(roadLeft-4, 0, 4, canvas.height);
+  ctx.fillRect(roadRight, 0, 4, canvas.height);
+
+  // trafico
+  traffic.forEach(t => drawCar(t.x, t.y, t.w, t.h, t.color));
+
+  // jugador (parpadea si está invulnerable tras un choque)
+  if(invuln<=0 || Math.floor(invuln/4)%2===0){
+    drawCar(player.x, player.y, player.w, player.h, '#4ef0d6');
+  }
+}
+
+function drawCar(x,y,w,h,color){
+  ctx.fillStyle = color;
+  if(ctx.roundRect){
+    ctx.beginPath();
+    ctx.roundRect(x,y,w,h,6);
+    ctx.fill();
+  } else {
+    ctx.fillRect(x,y,w,h);
+  }
+  // parabrisas
+  ctx.fillStyle = 'rgba(255,255,255,0.55)';
+  ctx.fillRect(x+5, y+8, w-10, 12);
+  // ruedas
+  ctx.fillStyle = '#111';
+  ctx.fillRect(x-2, y+6, 4, 12);
+  ctx.fillRect(x+w-2, y+6, 4, 12);
+  ctx.fillRect(x-2, y+h-18, 4, 12);
+  ctx.fillRect(x+w-2, y+h-18, 4, 12);
+}
+
+function loop(){
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+function restart(){
+  distance = 0; lives = 3; traffic = [];
+  spawnInterval = 70; trafficSpeedBase = 3; nextMilestone = 500;
+  player.x = canvas.width/2 - 16;
+  player.y = canvas.height - 90;
+  distanceEl.textContent = 0; livesEl.textContent = 3;
+  running = true;
+  overlay.style.display = 'none';
+  ensureAudio();
+  pickAndPlayMusic();
+}
+
+window.addEventListener('keydown', e => { keys[e.key] = true; });
+window.addEventListener('keyup', e => { keys[e.key] = false; });
+
+function bindHold(id, key){
+  const btn = document.getElementById(id);
+  const down = ev => { keys[key] = true; ev.preventDefault(); };
+  const up = ev => { keys[key] = false; ev.preventDefault(); };
+  btn.addEventListener('touchstart', down);
+  btn.addEventListener('touchend', up);
+  btn.addEventListener('mousedown', down);
+  btn.addEventListener('mouseup', up);
+  btn.addEventListener('mouseleave', up);
+}
+bindHold('btnLeft','ArrowLeft');
+bindHold('btnRight','ArrowRight');
+bindHold('btnUp','ArrowUp');
+bindHold('btnDown','ArrowDown');
+
+window.addEventListener('keydown', ()=> { ensureAudio(); }, {once:true});
+window.addEventListener('touchstart', ()=> { ensureAudio(); }, {once:true});
+window.addEventListener('mousedown', ()=> { ensureAudio(); }, {once:true});
+
+restart();
+loop();
+</script>
+</body>
+</html>
