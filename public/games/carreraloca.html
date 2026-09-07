@@ -150,12 +150,11 @@ const sfx = {
   milestone(){ tone(880,0.08,'square',0.1); tone(1174.7,0.1,'square',0.1,0.06); },
   gameOver(){ [392,349.23,293.66,220].forEach((f,i)=> tone(f,0.25,'triangle',0.15,i*0.2)); }
 };
-const musicTracks = ['../music/ambientdonutplains.mp3', '../music/ambientrainbow.mp3'];
+const musicTracks = { day: '../music/ambientdonutplains.mp3', night: '../music/ambientrainbow.mp3' };
 const bgMusic = document.getElementById('bgMusic');
 bgMusic.volume = 0.35;
-function pickAndPlayMusic(){
-  const track = musicTracks[Math.floor(Math.random()*musicTracks.length)];
-  bgMusic.src = track;
+function playMusicForTheme(){
+  bgMusic.src = musicTracks[theme];
   bgMusic.currentTime = 0;
   bgMusic.play().catch(()=>{});
 }
@@ -178,6 +177,30 @@ const overlayTitle = document.getElementById('overlayTitle');
 
 const ROAD_MARGIN = 30; // pasto a los costados
 const roadLeft = ROAD_MARGIN, roadRight = canvas.width - ROAD_MARGIN;
+
+
+// ---------- escenario: día o noche ----------
+let theme = 'day';
+
+function pickTheme(){
+  theme = Math.random() < 0.5 ? 'day' : 'night';
+}
+
+const THEMES = {
+  day: {
+    grass: '#2f7d3a',
+    road: '#5a5a5a',
+    line: '#f4d35e',
+    border: '#f1f5f9'
+  },
+  night: {
+    grass: '#0d2b14',
+    road: '#242424',
+    line: '#fbbf24',
+    border: '#4a4a4a'
+  }
+};
+
 
 let player = { x: canvas.width/2 - 16, y: canvas.height - 90, w: 32, h: 54, speed: 4.2 };
 const PLAYER_MIN_Y = 60;
@@ -268,19 +291,20 @@ function endGame(){
 }
 
 function draw(){
+  const t = THEMES[theme];
   ctx.clearRect(0,0,canvas.width,canvas.height);
 
   // pasto
-  ctx.fillStyle = '#2f7d3a';
+  ctx.fillStyle = t.grass;
   ctx.fillRect(0,0,roadLeft,canvas.height);
   ctx.fillRect(roadRight,0,canvas.width-roadRight,canvas.height);
 
   // carretera
-  ctx.fillStyle = '#3a3a3a';
+  ctx.fillStyle = t.road;
   ctx.fillRect(roadLeft,0,roadRight-roadLeft,canvas.height);
 
   // lineas discontinuas centrales (dan sensación de movimiento)
-  ctx.strokeStyle = '#f4d35e';
+  ctx.strokeStyle = t.line;
   ctx.lineWidth = 4;
   ctx.setLineDash([20, 20]);
   ctx.lineDashOffset = -dashOffset;
@@ -291,7 +315,7 @@ function draw(){
   ctx.setLineDash([]);
 
   // bordes de la carretera
-  ctx.fillStyle = '#f1f5f9';
+  ctx.fillStyle = t.border;
   ctx.fillRect(roadLeft-4, 0, 4, canvas.height);
   ctx.fillRect(roadRight, 0, 4, canvas.height);
 
@@ -338,8 +362,9 @@ function restart(){
   distanceEl.textContent = 0; livesEl.textContent = 3;
   running = true;
   overlay.style.display = 'none';
+  pickTheme();
   ensureAudio();
-  pickAndPlayMusic();
+  playMusicForTheme();
 }
 
 window.addEventListener('keydown', e => { keys[e.key] = true; });
