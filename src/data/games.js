@@ -40,8 +40,16 @@ export const games = [
   id: 'monstruos',
   title: 'Caza Monstruos',
   description: 'Extermina a los monstruos.',
-  emoji: '.👾',
+  emoji: '👾',
   category: 'Arcade',
   path: 'games/cazamonstruos.html',
+},
+{
+  id: 'revienta',
+  title: 'Revienta Bloques',
+  description: 'Revienta y gana puntos de bloques.',
+  emoji: '🔨',
+  category: 'Arcade',
+  path: 'games/revienta-bloques.html',
 },
 ]
