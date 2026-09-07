@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Revienta Bloques</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background: radial-gradient(circle at top, #1b2a3d, #0a1220 70%);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Segoe UI', Arial, sans-serif;
+    color: white;
+    padding: 16px;
+    touch-action: manipulation;
+  }
+  h1 {
+    font-size: 24px;
+    color: #60d9ff;
+    text-shadow: 0 0 10px rgba(96,217,255,0.5);
+    margin-bottom: 6px;
+  }
+  #hud {
+    display: flex;
+    gap: 20px;
+    font-size: 14px;
+    color: #a9b7c9;
+    margin-bottom: 10px;
+    align-items: center;
+  }
+  #hud span { color: #fbbf24; font-weight: bold; }
+  #btnMute {
+    background: rgba(255,255,255,0.1);
+    border: none;
+    color: white;
+    padding: 4px 10px;
+    border-radius: 8px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  canvas {
+    background: #0e1a2b;
+    border: 3px solid #24405c;
+    border-radius: 10px;
+    box-shadow: 0 0 25px rgba(96,217,255,0.15);
+    cursor: pointer;
+    max-width: 100%;
+  }
+  #msg {
+    margin-top: 10px;
+    font-size: 12px;
+    color: #8fa0b8;
+    text-align: center;
+    max-width: 340px;
+  }
+  #controls {
+    margin-top: 14px;
+  }
+  #controls button {
+    padding: 10px 20px;
+    font-size: 14px;
+    border: none;
+    border-radius: 8px;
+    background: #fbbf24;
+    color: #0a1220;
+    font-weight: bold;
+    cursor: pointer;
+  }
+  #overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.8);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    text-align: center;
+    z-index: 10;
+  }
+  #overlay h2 { font-size: 30px; color: #60d9ff; margin-bottom: 10px; }
+  #overlay button {
+    margin-top: 18px;
+    padding: 12px 28px;
+    font-size: 16px;
+    background: #60d9ff;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: bold;
+  }
+</style>
+</head>
+<body>
+
+<h1>🎨 Revienta Bloques</h1>
+<div id="hud">
+  Puntos: <span id="score">0</span>
+  Bloques: <span id="remaining">100</span>
+  <button id="btnMute">🔊</button>
+</div>
+<canvas id="game" width="320" height="320"></canvas>
+<p id="msg">Tocá un grupo de 3 o más bloques del mismo color conectados (sin diagonales) para reventarlos.</p>
+
+<div id="controls">
+  <button onclick="restart()">🔀 Nuevo tablero</button>
+</div>
+
+<div id="overlay">
+  <h2 id="overlayTitle">¡Sin movimientos!</h2>
+  <p id="finalScore"></p>
+  <button onclick="restart()">Jugar de nuevo</button>
+</div>
+
+<audio id="bgMusic" loop preload="auto"></audio>
+
+<script>
+// ---------- audio ----------
+let audioCtx = null;
+let muted = false;
+function ensureAudio(){
+  if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if(audioCtx.state === 'suspended') audioCtx.resume();
+}
+function tone(freq, duration, type='square', vol=0.13, delay=0){
+  if(muted || !audioCtx) return;
+  const t0 = audioCtx.currentTime + delay;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, t0);
+  gain.gain.setValueAtTime(vol, t0);
+  gain.gain.exponentialRampToValueAtTime(0.001, t0 + duration);
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  osc.start(t0); osc.stop(t0 + duration);
+}
+const sfx = {
+  pop(n){ const notes=[523.25,659.25,783.99,1046.5,1318.5]; const count=Math.min(notes.length, Math.max(2,Math.floor(n/2))); for(let i=0;i<count;i++) tone(notes[i],0.1,'square',0.11,i*0.04); },
+  invalid(){ tone(180,0.08,'sawtooth',0.08); },
+  win(){ [523.25,659.25,783.99,1046.5,1318.5].forEach((f,i)=> tone(f,0.16,'square',0.13,i*0.13)); },
+  gameOver(){ [392,349.23,293.66,220].forEach((f,i)=> tone(f,0.25,'triangle',0.15,i*0.2)); }
+};
+const musicTracks = ['../music/ambientrelax.mp3', '../music/ambientsilence.mp3'];
+const bgMusic = document.getElementById('bgMusic');
+bgMusic.volume = 0.35;
+function pickAndPlayMusic(){
+  const track = musicTracks[Math.floor(Math.random()*musicTracks.length)];
+  bgMusic.src = track;
+  bgMusic.currentTime = 0;
+  bgMusic.play().catch(()=>{});
+}
+function stopMusic(){ bgMusic.pause(); }
+const btnMute = document.getElementById('btnMute');
+btnMute.addEventListener('click', ()=>{
+  ensureAudio();
+  muted = !muted;
+  bgMusic.muted = muted;
+  btnMute.textContent = muted ? '🔇' : '🔊';
+});
+// ---------- fin audio ----------
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+const remainingEl = document.getElementById('remaining');
+const overlay = document.getElementById('overlay');
+const overlayTitle = document.getElementById('overlayTitle');
+
+const SIZE = 10;
+const CELL = 32;
+const COLORS = {
+  G: '#22c55e', // verde
+  B: '#3b82f6', // azul
+  Y: '#fbbf24', // amarillo
+  W: '#f1f5f9', // blanco
+  R: '#ef4444', // rojo
+  P: '#a855f7', // morado
+};
+const KEYS = Object.keys(COLORS);
+
+let grid;
+let score = 0;
+let hoverGroup = [];
+let running = true;
+
+function emptyGrid(){
+  return Array.from({length:SIZE}, () => Array(SIZE).fill(null));
+}
+
+function randomBoard(){
+  grid = Array.from({length:SIZE}, () =>
+    Array.from({length:SIZE}, () => KEYS[Math.floor(Math.random()*KEYS.length)])
+  );
+}
+
+function countRemaining(){
+  let n = 0;
+  for(let r=0;r<SIZE;r++) for(let c=0;c<SIZE;c++) if(grid[r][c]) n++;
+  return n;
+}
+
+function floodFill(r,c){
+  const color = grid[r][c];
+  if(!color) return [];
+  const visited = new Set();
+  const stack = [[r,c]];
+  const group = [];
+  while(stack.length){
+    const [cr,cc] = stack.pop();
+    const key = cr+','+cc;
+    if(visited.has(key)) continue;
+    if(cr<0||cr>=SIZE||cc<0||cc>=SIZE) continue;
+    if(grid[cr][cc] !== color) continue;
+    visited.add(key);
+    group.push([cr,cc]);
+    stack.push([cr+1,cc],[cr-1,cc],[cr,cc+1],[cr,cc-1]);
+  }
+  return group;
+}
+
+function applyGravity(){
+  for(let c=0;c<SIZE;c++){
+    const stack = [];
+    for(let r=0;r<SIZE;r++){ if(grid[r][c]) stack.push(grid[r][c]); }
+    for(let r=SIZE-1;r>=0;r--){ grid[r][c] = stack.length ? stack.pop() : null; }
+  }
+}
+
+function collapseColumns(){
+  const nonEmptyCols = [];
+  for(let c=0;c<SIZE;c++){
+    let has = false;
+    for(let r=0;r<SIZE;r++){ if(grid[r][c]){ has = true; break; } }
+    if(has) nonEmptyCols.push(c);
+  }
+  const newGrid = emptyGrid();
+  nonEmptyCols.forEach((oldC, newC) => {
+    for(let r=0;r<SIZE;r++) newGrid[r][newC] = grid[r][oldC];
+  });
+  grid = newGrid;
+}
+
+function hasValidMove(){
+  const seen = new Set();
+  for(let r=0;r<SIZE;r++){
+    for(let c=0;c<SIZE;c++){
+      if(!grid[r][c]) continue;
+      const key = r+','+c;
+      if(seen.has(key)) continue;
+      const group = floodFill(r,c);
+      group.forEach(([gr,gc]) => seen.add(gr+','+gc));
+      if(group.length >= 3) return true;
+    }
+  }
+  return false;
+}
+
+function handleClick(evt){
+  if(!running) return;
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const x = (evt.clientX - rect.left) * scaleX;
+  const y = (evt.clientY - rect.top) * scaleY;
+  const c = Math.floor(x / CELL);
+  const r = Math.floor(y / CELL);
+  if(r<0||r>=SIZE||c<0||c>=SIZE || !grid[r][c]) return;
+
+  ensureAudio();
+  const group = floodFill(r,c);
+  if(group.length < 3){
+    sfx.invalid();
+    return;
+  }
+
+  group.forEach(([gr,gc]) => grid[gr][gc] = null);
+  score += group.length * 10 + Math.max(0, group.length - 3) * 5;
+  scoreEl.textContent = score;
+  sfx.pop(group.length);
+
+  applyGravity();
+  collapseColumns();
+
+  const remaining = countRemaining();
+  remainingEl.textContent = remaining;
+
+  if(remaining === 0){
+    endGame(true);
+  } else if(!hasValidMove()){
+    endGame(false);
+  }
+}
+
+canvas.addEventListener('click', handleClick);
+
+canvas.addEventListener('mousemove', evt => {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const x = (evt.clientX - rect.left) * scaleX;
+  const y = (evt.clientY - rect.top) * scaleY;
+  const c = Math.floor(x / CELL);
+  const r = Math.floor(y / CELL);
+  if(r>=0 && r<SIZE && c>=0 && c<SIZE && grid[r][c]){
+    hoverGroup = floodFill(r,c);
+  } else {
+    hoverGroup = [];
+  }
+});
+canvas.addEventListener('mouseleave', () => { hoverGroup = []; });
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  const hoverSet = new Set(hoverGroup.map(([r,c]) => r+','+c));
+  const validHover = hoverGroup.length >= 3;
+
+  for(let r=0;r<SIZE;r++){
+    for(let c=0;c<SIZE;c++){
+      const color = grid[r][c];
+      if(!color) continue;
+      const x = c*CELL, y = r*CELL;
+      const isHover = hoverSet.has(r+','+c);
+
+      ctx.fillStyle = COLORS[color];
+      ctx.globalAlpha = isHover ? (validHover ? 1 : 0.4) : 1;
+      const pad = isHover && validHover ? 1 : 2;
+      ctx.beginPath();
+      if(ctx.roundRect) ctx.roundRect(x+pad, y+pad, CELL-pad*2, CELL-pad*2, 6);
+      else ctx.rect(x+pad, y+pad, CELL-pad*2, CELL-pad*2);
+      ctx.fill();
+
+      if(isHover && validHover){
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+}
+
+function loop(){
+  draw();
+  requestAnimationFrame(loop);
+}
+
+function endGame(won){
+  running = false;
+  stopMusic();
+  if(won){
+    sfx.win();
+    overlayTitle.textContent = "🏆 ¡Tablero limpio!";
+  } else {
+    sfx.gameOver();
+    overlayTitle.textContent = "😕 ¡Sin movimientos!";
+  }
+  document.getElementById('finalScore').textContent = `Puntaje final: ${score}`;
+  overlay.style.display = 'flex';
+}
+
+function restart(){
+  randomBoard();
+  score = 0;
+  scoreEl.textContent = 0;
+  remainingEl.textContent = SIZE*SIZE;
+  hoverGroup = [];
+  running = true;
+  overlay.style.display = 'none';
+  ensureAudio();
+  pickAndPlayMusic();
+}
+
+window.addEventListener('mousedown', ()=> ensureAudio(), {once:true});
+window.addEventListener('touchstart', ()=> ensureAudio(), {once:true});
+
+restart();
+loop();
+</script>
+</body>
+</html>
