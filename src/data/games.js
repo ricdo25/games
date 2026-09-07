@@ -50,6 +50,6 @@ export const games = [
   description: 'Revienta y gana puntos de bloques.',
   emoji: '🔨',
   category: 'Arcade',
-  path: 'games/revienta-bloques.html',
+  path: 'games/revientabloques.html',
 },
 ]
