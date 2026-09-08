@@ -58,7 +58,7 @@ export const games = [
   description: 'Organiza imagenes y gana puntos.',
   emoji: '🧩',
   category: 'Puzzle',
-  path: 'games/revientabloques.html',
+  path: 'games/rompecabezas.html',
 },
 {
   id: 'carrera',
