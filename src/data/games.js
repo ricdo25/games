@@ -60,4 +60,12 @@ export const games = [
   category: 'Puzzle',
   path: 'games/revientabloques.html',
 },
+{
+  id: 'carrera',
+  title: 'Carrera loca',
+  description: 'Evita los carros y sobrevive.',
+  emoji: '🚘',
+  category: 'Arcade',
+  path: 'games/carreraloca.html',
+},
 ]
