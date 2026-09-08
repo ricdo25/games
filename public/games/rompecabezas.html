@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rompecabezas Arcade</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body{
+    background: radial-gradient(circle at top, #2d1b4e, #0f0a1f 70%);
+    min-height: 100vh;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    font-family:'Segoe UI', Arial, sans-serif;
+    color:white;
+    padding:20px;
+  }
+  h1{
+    font-size: 26px;
+    background: linear-gradient(90deg, #fbbf24, #60a5fa);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    margin-bottom: 6px;
+    text-align:center;
+  }
+  #hud{
+    display:flex;
+    gap:24px;
+    font-size:15px;
+    color:#cbbfe8;
+    margin-bottom:16px;
+    align-items:center;
+  }
+  #hud span{ color:#fbbf24; font-weight:bold; }
+  #btnMute{ padding:2px 10px; font-size:13px; }
+
+  #board{
+    display:grid;
+    gap: 5px;
+    background: #4a3a72;
+    border: 3px solid #4a3a72;
+    border-radius: 10px;
+    width: min(90vw, 440px);
+    aspect-ratio: 1;
+    overflow:hidden;
+    box-shadow: 0 0 24px rgba(251,191,36,0.15);
+  }
+  .tile{
+    background-color:#1b1430;
+    background-repeat:no-repeat;
+    display:flex;
+    align-items:flex-end;
+    justify-content:flex-start;
+    cursor:pointer;
+    position:relative;
+  }
+  .tile:hover{ filter:brightness(1.12); }
+  .tile.blank{ background:#0f0a1f; cursor:default; }
+  .tile .num{
+    font-size:0.65rem;
+    color:#cbbfe8;
+    background: rgba(0,0,0,0.45);
+    padding: 1px 5px;
+    border-radius: 4px;
+    margin: 3px;
+  }
+
+  #controls{
+    margin-top:22px;
+    display:flex;
+    gap:12px;
+    align-items:center;
+    flex-wrap:wrap;
+    justify-content:center;
+  }
+  select, button{
+    background:#1b1430;
+    border:1px solid #4a3a72;
+    color:white;
+    padding:9px 14px;
+    border-radius:8px;
+    font-size:14px;
+    cursor:pointer;
+  }
+  button.primary{
+    background:#fbbf24;
+    color:#1b1430;
+    font-weight:bold;
+    border:none;
+  }
+  button:hover{ filter:brightness(1.1); }
+
+  #overlay{
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,0.75);
+    display:none;
+    align-items:center;
+    justify-content:center;
+    flex-direction:column;
+    text-align:center;
+    z-index:10;
+  }
+  #overlay h2{ font-size:32px; color:#fbbf24; margin-bottom:10px; }
+  #overlay p{ color:#cbbfe8; margin-bottom:6px; }
+  #overlay button{ margin-top:18px; }
+</style>
+</head>
+<body>
+
+<h1>🧩 Rompecabezas Arcade</h1>
+<div id="hud">
+  Movimientos: <span id="moves">0</span>
+  Tiempo: <span id="time">0s</span>
+  <button id="btnMute">🔊</button>
+</div>
+
+<div id="board"></div>
+
+<div id="controls">
+  <label>Dificultad:
+    <select id="difficulty">
+      <option value="3">3 x 3 (fácil)</option>
+      <option value="4" selected>4 x 4 (normal)</option>
+      <option value="5">5 x 5 (difícil)</option>
+    </select>
+  </label>
+  <button class="primary" id="btnNew">🔀 Nueva partida</button>
+</div>
+
+<div id="overlay">
+  <h2>🎉 ¡Completado!</h2>
+  <p id="summary"></p>
+  <button class="primary" onclick="startGame()">Jugar de nuevo</button>
+</div>
+
+<audio id="audioEl" loop></audio>
+
+<script>
+/* =========================================================
+   MÚSICA: coloca aquí las rutas de tus canciones.
+   Deben estar en la misma carpeta que este archivo
+   (o ajusta la ruta, ej. "musica/tema1.mp3").
+   Puedes agregar más, solo súmalas al arreglo.
+========================================================= */
+const TRACKS = [
+  "../music/ambienteShop.mp3",
+  "../music/ambienfrutigeraero.mp3",
+  "../music/ambientfruitfrutigeraero.mp3"
+];
+
+const audioEl = document.getElementById('audioEl');
+const btnMute = document.getElementById('btnMute');
+let muted = false;
+
+function playRandomTrack(){
+  if(!TRACKS.length) return;
+  const pick = TRACKS[Math.floor(Math.random() * TRACKS.length)];
+  audioEl.src = pick;
+  audioEl.volume = 0.5;
+  if(!muted){
+    audioEl.play().catch(()=>{
+      // el navegador bloqueó el autoplay; se reproducirá con el primer click
+      const startOnClick = ()=>{ audioEl.play(); document.removeEventListener('click', startOnClick); };
+      document.addEventListener('click', startOnClick);
+    });
+  }
+}
+
+btnMute.addEventListener('click', ()=>{
+  muted = !muted;
+  btnMute.textContent = muted ? '🔇' : '🔊';
+  if(muted){ audioEl.pause(); }
+  else { audioEl.play().catch(()=>{}); }
+});
+
+/* =========================================================
+   IMÁGENES ALEATORIAS (generadas por canvas, sin depender
+   de internet). Se elige una al azar en cada partida.
+========================================================= */
+function generateImage(kind){
+  const c = document.createElement('canvas');
+  c.width = 480; c.height = 480;
+  const ctx = c.getContext('2d');
+
+  if(kind === 0){ // Espiral dorada
+    const g = ctx.createLinearGradient(0,0,480,480);
+    g.addColorStop(0,'#0f0a1f'); g.addColorStop(1,'#fbbf24');
+    ctx.fillStyle = g; ctx.fillRect(0,0,480,480);
+    ctx.strokeStyle = '#f3e6d0';
+    ctx.lineWidth = 3;
+    let a = 0, r = 4;
+    ctx.beginPath();
+    ctx.moveTo(240,240);
+    for(let i=0;i<400;i++){
+      a += 0.25; r += 0.6;
+      ctx.lineTo(240 + r*Math.cos(a), 240 + r*Math.sin(a));
+    }
+    ctx.stroke();
+  } else if(kind === 1){ // Ondas azules
+    ctx.fillStyle = '#0f0a1f'; ctx.fillRect(0,0,480,480);
+    for(let i=0;i<14;i++){
+      ctx.strokeStyle = `hsl(${210+i*6},80%,${40+i*2}%)`;
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      for(let x=0;x<=480;x+=8){
+        const y = 240 + Math.sin((x/40)+i)*30 + i*14 - 90;
+        x===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+      }
+      ctx.stroke();
+    }
+  } else if(kind === 2){ // Mosaico geométrico morado/dorado
+    const cols = ['#2d1b4e','#4a3a72','#fbbf24','#60a5fa','#1b1430'];
+    const cell = 60;
+    for(let y=0;y<480;y+=cell){
+      for(let x=0;x<480;x+=cell){
+        ctx.fillStyle = cols[Math.floor(Math.random()*cols.length)];
+        ctx.beginPath();
+        if((x+y)%120===0){
+          ctx.arc(x+cell/2,y+cell/2,cell/2,0,Math.PI*2);
+        } else {
+          ctx.rect(x,y,cell,cell);
+        }
+        ctx.fill();
+      }
+    }
+  } else if(kind === 3){ // Aurora
+    const g = ctx.createRadialGradient(240,180,20,240,240,340);
+    g.addColorStop(0,'#60a5fa'); g.addColorStop(0.5,'#7c3aed'); g.addColorStop(1,'#0f0a1f');
+    ctx.fillStyle = g; ctx.fillRect(0,0,480,480);
+    ctx.globalAlpha = 0.5;
+    for(let i=0;i<6;i++){
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(240,240,40+i*35,0,Math.PI*1.4);
+      ctx.stroke();
+    }
+  } else if(kind === 4){ // Rejilla neón
+    ctx.fillStyle = '#0f0a1f'; ctx.fillRect(0,0,480,480);
+    ctx.strokeStyle = 'rgba(96,165,250,0.5)';
+    ctx.lineWidth = 1;
+    for(let x=0;x<=480;x+=24){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,480); ctx.stroke(); }
+    for(let y=0;y<=480;y+=24){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(480,y); ctx.stroke(); }
+    ctx.strokeStyle = '#fbbf24';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(60,60,360,360);
+    ctx.beginPath();
+    ctx.moveTo(60,240); ctx.lineTo(420,240);
+    ctx.moveTo(240,60); ctx.lineTo(240,420);
+    ctx.stroke();
+  } else { // Destellos
+    ctx.fillStyle = '#1b1430'; ctx.fillRect(0,0,480,480);
+    for(let i=0;i<40;i++){
+      const x = Math.random()*480, y = Math.random()*480, r = Math.random()*3+1;
+      ctx.fillStyle = Math.random()>0.5 ? '#fbbf24' : '#60a5fa';
+      ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+    }
+    ctx.strokeStyle = '#fbbf24';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(240,240,150,0,Math.PI*2);
+    ctx.stroke();
+  }
+  return c.toDataURL('image/png');
+}
+
+const IMAGE_COUNT = 6;
+let currentImage = generateImage(0);
+
+/* =========================================================
+   LÓGICA DEL ROMPECABEZAS
+========================================================= */
+const difficultySel = document.getElementById('difficulty');
+document.getElementById('btnNew').addEventListener('click', startGame);
+difficultySel.addEventListener('change', startGame);
+
+let size = 4;
+let tiles = [];
+let moves = 0;
+let timerInterval = null;
+let seconds = 0;
+let playing = false;
+
+function startGame(){
+  document.getElementById('overlay').style.display = 'none';
+  clearInterval(timerInterval);
+  size = parseInt(difficultySel.value);
+  moves = 0; seconds = 0; playing = false;
+  document.getElementById('moves').textContent = '0';
+  document.getElementById('time').textContent = '0s';
+
+  currentImage = generateImage(Math.floor(Math.random()*IMAGE_COUNT));
+  playRandomTrack();
+
+  tiles = [];
+  for(let i=0;i<size*size;i++) tiles.push(i);
+  render();
+  shuffleTiles();
+}
+
+function render(){
+  const board = document.getElementById('board');
+  board.style.gridTemplateColumns = `repeat(${size}, 1fr)`;
+  board.innerHTML = '';
+  const pct = 100/(size-1);
+
+  tiles.forEach((val, idx)=>{
+    const el = document.createElement('div');
+    if(val === tiles.length - 1){
+      el.className = 'tile blank';
+    } else {
+      el.className = 'tile';
+      const row = Math.floor(val / size);
+      const col = val % size;
+      el.style.backgroundImage = `url(${currentImage})`;
+      el.style.backgroundSize = `${size*100}% ${size*100}%`;
+      el.style.backgroundPosition = `${col*pct}% ${row*pct}%`;
+      const num = document.createElement('span');
+      num.className = 'num';
+      num.textContent = val+1;
+      el.appendChild(num);
+    }
+    el.addEventListener('click', ()=>tryMove(idx));
+    board.appendChild(el);
+  });
+}
+
+function tryMove(idx){
+  const blankIdx = tiles.indexOf(tiles.length - 1);
+  const r1 = Math.floor(idx/size), c1 = idx%size;
+  const r2 = Math.floor(blankIdx/size), c2 = blankIdx%size;
+  const adjacent = (Math.abs(r1-r2)+Math.abs(c1-c2)) === 1;
+  if(!adjacent) return;
+
+  [tiles[idx], tiles[blankIdx]] = [tiles[blankIdx], tiles[idx]];
+  moves++;
+  document.getElementById('moves').textContent = moves;
+  if(!playing){ playing = true; startTimer(); }
+  render();
+  checkWin();
+}
+
+function shuffleTiles(){
+  let blankIdx = tiles.length - 1;
+  for(let i=0;i<size*size*60;i++){
+    const r = Math.floor(blankIdx/size), c = blankIdx%size;
+    const neighbors = [];
+    if(r>0) neighbors.push(blankIdx-size);
+    if(r<size-1) neighbors.push(blankIdx+size);
+    if(c>0) neighbors.push(blankIdx-1);
+    if(c<size-1) neighbors.push(blankIdx+1);
+    const pick = neighbors[Math.floor(Math.random()*neighbors.length)];
+    [tiles[pick], tiles[blankIdx]] = [tiles[blankIdx], tiles[pick]];
+    blankIdx = pick;
+  }
+  moves = 0; seconds = 0; playing = true;
+  document.getElementById('moves').textContent = '0';
+  startTimer();
+  render();
+}
+
+function checkWin(){
+  const solved = tiles.every((v,i)=> v===i);
+  if(solved){
+    clearInterval(timerInterval);
+    document.getElementById('summary').textContent =
+      `Lo lograste en ${moves} movimientos y ${seconds} segundos.`;
+    setTimeout(()=>{ document.getElementById('overlay').style.display = 'flex'; }, 400);
+  }
+}
+
+function startTimer(){
+  clearInterval(timerInterval);
+  timerInterval = setInterval(()=>{
+    seconds++;
+    document.getElementById('time').textContent = seconds + 's';
+  }, 1000);
+}
+
+startGame();
+</script>
+</body>
+</html>

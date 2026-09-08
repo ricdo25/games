@@ -49,7 +49,15 @@ export const games = [
   title: 'Revienta Bloques',
   description: 'Revienta y gana puntos de bloques.',
   emoji: '🔨',
-  category: 'Arcade',
+  category: 'Puzzle',
+  path: 'games/revientabloques.html',
+},
+{
+  id: 'puzzle',
+  title: 'Rompe Cabezas',
+  description: 'Organiza imagenes y gana puntos.',
+  emoji: '🧩',
+  category: 'Puzzle',
   path: 'games/revientabloques.html',
 },
 ]
